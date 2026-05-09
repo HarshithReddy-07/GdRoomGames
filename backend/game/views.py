@@ -3,6 +3,7 @@ import string
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from .models import Game, Player
 from .serializers import GameSerializer
 
@@ -15,37 +16,53 @@ def gen_code():
 
 
 class CreateGameView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
+        username = request.data.get("username", "").strip()[:50]
         num_decks = int(request.data.get("num_decks", 1))
-        game = Game.objects.create(
-            code=gen_code(),
-            host=request.user,
-            num_decks=num_decks,
-        )
-        Player.objects.create(game=game, user=request.user, seat=0)
+        if not username:
+            return Response({"error": "Username required."}, status=400)
+
+        game = Game.objects.create(code=gen_code(), host_username=username, num_decks=num_decks)
+        Player.objects.create(game=game, username=username, seat=0)
         return Response(GameSerializer(game).data, status=status.HTTP_201_CREATED)
 
 
 class JoinGameView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
+        username = request.data.get("username", "").strip()[:50]
         code = request.data.get("code", "").upper()
+        if not username:
+            return Response({"error": "Username required."}, status=400)
+
         try:
             game = Game.objects.get(code=code, status=Game.STATUS_WAITING)
         except Game.DoesNotExist:
             return Response({"error": "Game not found or already started."}, status=404)
 
-        if game.players.filter(user=request.user).exists():
+        if game.players.filter(username=username).exists():
             return Response(GameSerializer(game).data)
 
         if game.players.count() >= 7:
             return Response({"error": "Game is full (max 7 players)."}, status=400)
 
-        seat = game.players.count()
-        Player.objects.create(game=game, user=request.user, seat=seat)
+        # Handle duplicate display names in the same game
+        base = username
+        n = 2
+        while game.players.filter(username=username).exists():
+            username = f"{base}{n}"
+            n += 1
+
+        Player.objects.create(game=game, username=username, seat=game.players.count())
         return Response(GameSerializer(game).data)
 
 
 class GameDetailView(APIView):
+    permission_classes = [AllowAny]
+
     def get(self, request, code):
         try:
             game = Game.objects.get(code=code.upper())

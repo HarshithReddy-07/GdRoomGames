@@ -11,30 +11,24 @@ export default function GamePage() {
   const code = (params?.code as string ?? "").toUpperCase();
 
   const [username, setUsername] = useState<string | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  const [ready, setReady] = useState(false);
 
-  // Auth check + auto-join
   useEffect(() => {
-    api.me()
-      .then(async (me) => {
-        setUsername(me.username);
-        // Auto-join the game if not already in it
-        try {
-          await api.joinGame(code);
-        } catch {
-          // Already in game or game started — that's fine
-        }
-        setAuthChecked(true);
-      })
-      .catch(() => router.push("/"));
+    const saved = localStorage.getItem("os_username");
+    if (!saved) { router.push("/"); return; }
+    setUsername(saved);
+
+    // Auto-join (idempotent — server ignores if already in game)
+    api.joinGame(saved, code).catch(() => {}).finally(() => setReady(true));
   }, [code, router]);
 
-  const { state, error, connected, startGame, placeBid, playCard } = useGameSocket(code);
+  const { state, error, connected, startGame, placeBid, playCard } =
+    useGameSocket(code, username ?? "");
 
-  if (!authChecked || !username) {
+  if (!ready || !username) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <div className="text-gray-400 animate-pulse">Loading…</div>
+        <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -42,8 +36,8 @@ export default function GamePage() {
   if (error && !state) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 gap-4">
-        <p className="text-red-400">{error}</p>
-        <button onClick={() => router.push("/lobby")} className="text-yellow-400 underline">
+        <p className="text-red-400 text-center px-4">{error}</p>
+        <button onClick={() => router.push("/lobby")} className="text-yellow-400 underline text-sm">
           Back to lobby
         </button>
       </div>
@@ -52,11 +46,9 @@ export default function GamePage() {
 
   if (!state) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">{connected ? "Loading game…" : "Connecting…"}</p>
-        </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 gap-3">
+        <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-gray-500 text-sm">{connected ? "Loading game…" : "Connecting to server…"}</p>
       </div>
     );
   }

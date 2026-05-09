@@ -2,117 +2,82 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { api } from "@/lib/api";
 
-type Mode = "login" | "register";
+const SUITS = ["♠", "♥", "♦", "♣"];
 
 export default function Home() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("login");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [name, setName] = useState("");
+  const [hint, setHint] = useState(false);
 
-  // If already logged in, go to lobby
   useEffect(() => {
-    api.me().then(() => router.push("/lobby")).catch(() => {});
+    const saved = localStorage.getItem("os_username");
+    if (saved) router.push("/lobby");
   }, [router]);
 
-  async function submit(e: React.FormEvent) {
+  function enter(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      if (mode === "register") {
-        await api.register(username, password);
-      } else {
-        await api.login(username, password);
-      }
-      router.push("/lobby");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    const trimmed = name.trim();
+    if (!trimmed) { setHint(true); return; }
+    localStorage.setItem("os_username", trimmed);
+    router.push("/lobby");
   }
 
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center p-4"
-      style={{
-        background: "radial-gradient(ellipse at center, #1a4731 0%, #0d2b1e 60%, #091a12 100%)",
-      }}
+      style={{ background: "radial-gradient(ellipse at center,#1a4731 0%,#0d2b1e 60%,#091a12 100%)" }}
     >
-      {/* Logo */}
-      <motion.div
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="text-center mb-10"
-      >
-        <h1 className="text-5xl font-extrabold text-yellow-400 tracking-tight drop-shadow-lg">
+      {/* Floating suit decorations */}
+      {SUITS.map((s, i) => (
+        <motion.span
+          key={s}
+          className="absolute text-6xl select-none pointer-events-none opacity-10"
+          style={{ left: `${10 + i * 25}%`, top: `${15 + (i % 2) * 55}%` }}
+          animate={{ y: [0, -12, 0] }}
+          transition={{ repeat: Infinity, duration: 3 + i * 0.7, ease: "easeInOut" }}
+        >
+          {s}
+        </motion.span>
+      ))}
+
+      <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-center mb-10 relative z-10">
+        <h1 className="text-6xl font-extrabold text-yellow-400 tracking-tight drop-shadow-2xl">
           ♠ OpenSpades
         </h1>
-        <p className="text-gray-400 mt-2 text-lg">The hostel card game</p>
+        <p className="text-gray-400 mt-2 text-lg">Judgment · for the batch</p>
       </motion.div>
 
-      {/* Card */}
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ delay: 0.1 }}
-        className="bg-gray-900/80 backdrop-blur border border-white/10 rounded-2xl p-8 w-full max-w-sm shadow-2xl"
+        className="bg-gray-900/80 backdrop-blur border border-white/10 rounded-2xl p-8 w-full max-w-sm shadow-2xl relative z-10"
       >
-        {/* Toggle */}
-        <div className="flex rounded-xl bg-black/30 p-1 mb-7">
-          {(["login", "register"] as Mode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => { setMode(m); setError(""); }}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all capitalize ${
-                mode === m ? "bg-yellow-400 text-gray-900" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {m}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={submit} className="flex flex-col gap-4">
+        <p className="text-gray-300 text-center mb-6 text-sm">What should we call you tonight?</p>
+        <form onSubmit={enter} className="flex flex-col gap-4">
           <input
             type="text"
-            placeholder="Username"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-            className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-yellow-400 transition-colors"
+            placeholder="Your name (e.g. Arch)"
+            value={name}
+            onChange={(e) => { setName(e.target.value); setHint(false); }}
+            maxLength={20}
+            autoFocus
+            className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white text-center text-xl placeholder-gray-600 focus:outline-none focus:border-yellow-400 transition-colors"
           />
-          <input
-            type="password"
-            placeholder="Password"
-            autoComplete={mode === "register" ? "new-password" : "current-password"}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-yellow-400 transition-colors"
-          />
-
-          {error && (
-            <p className="text-red-400 text-sm text-center">{error}</p>
-          )}
-
-          <button
+          {hint && <p className="text-red-400 text-xs text-center">Enter a name first!</p>}
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
             type="submit"
-            disabled={loading}
-            className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-gray-900 font-bold py-3 rounded-xl transition-all mt-1"
+            className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-extrabold py-3 rounded-xl text-lg transition-all shadow-lg shadow-yellow-400/20"
           >
-            {loading ? "…" : mode === "login" ? "Let's Play →" : "Create Account →"}
-          </button>
+            Let's Play →
+          </motion.button>
         </form>
       </motion.div>
 
-      <p className="text-gray-600 text-xs mt-8">Only for the batch 🃏</p>
+      <p className="text-gray-700 text-xs mt-8 relative z-10">Only for the batch 🃏</p>
     </div>
   );
 }

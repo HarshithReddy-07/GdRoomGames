@@ -1,6 +1,5 @@
 import uuid
 from django.db import models
-from django.contrib.auth.models import User
 
 
 SUITS = ["spades", "hearts", "diamonds", "clubs"]
@@ -22,7 +21,7 @@ class Game(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     code = models.CharField(max_length=6, unique=True)
-    host = models.ForeignKey(User, on_delete=models.CASCADE, related_name="hosted_games")
+    host_username = models.CharField(max_length=50)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_WAITING)
     num_decks = models.PositiveSmallIntegerField(default=1)
     current_round = models.PositiveSmallIntegerField(default=0)
@@ -38,20 +37,20 @@ class Game(models.Model):
 
 class Player(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="players")
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="game_players")
+    username = models.CharField(max_length=50)
     seat = models.PositiveSmallIntegerField()
-    hand = models.JSONField(default=list)  # list of {"suit": "hearts", "rank": "A", "deck_id": 1}
+    hand = models.JSONField(default=list)
     bid = models.SmallIntegerField(default=-1)   # -1 = not yet bid
     tricks_won = models.PositiveSmallIntegerField(default=0)
     total_score = models.IntegerField(default=0)
     is_connected = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = [("game", "seat"), ("game", "user")]
+        unique_together = [("game", "seat"), ("game", "username")]
         ordering = ["seat"]
 
     def __str__(self):
-        return f"{self.user.username} seat {self.seat}"
+        return f"{self.username} seat {self.seat}"
 
 
 class Round(models.Model):
@@ -82,7 +81,7 @@ class TrickCard(models.Model):
     suit = models.CharField(max_length=10)
     rank = models.CharField(max_length=2)
     deck_id = models.PositiveSmallIntegerField(default=1)
-    play_order = models.PositiveSmallIntegerField()  # 0-first, 1-second, ...
+    play_order = models.PositiveSmallIntegerField()
 
     class Meta:
         ordering = ["play_order"]

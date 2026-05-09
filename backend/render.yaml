@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: openspades-backend
+    env: python
+    buildCommand: pip install -r requirements.txt && python manage.py migrate --no-input && python manage.py collectstatic --no-input
+    startCommand: daphne -b 0.0.0.0 -p $PORT config.asgi:application
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: "*"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: openspades-db
+          property: connectionString
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: "True"
+
+databases:
+  - name: openspades-db
+    databaseName: openspades
+    plan: free
