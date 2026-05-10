@@ -39,19 +39,23 @@ class JoinGameView(APIView):
             return Response({"error": "Username required."}, status=400)
 
         try:
-            game = Game.objects.get(code=code, status=Game.STATUS_WAITING)
+            game = Game.objects.get(code=code)
         except Game.DoesNotExist:
-            return Response({"error": "Game not found or already started."}, status=404)
+            return Response({"error": "Game not found."}, status=404)
 
+        # Player already in this game — allow rejoin (handles page reload mid-game)
         if game.players.filter(username=username).exists():
             return Response(GameSerializer(game).data)
 
-        if game.players.count() >= 7:
-            return Response({"error": "Game is full (max 7 players)."}, status=400)
+        # New player joining — only allowed while waiting
+        if game.status != Game.STATUS_WAITING:
+            return Response({"error": "Game has already started."}, status=400)
 
-        # Handle duplicate display names in the same game
-        base = username
-        n = 2
+        if game.players.count() >= 7:
+            return Response({"error": "Room is full (max 7 players)."}, status=400)
+
+        # Handle name collision in the same room
+        base, n = username, 2
         while game.players.filter(username=username).exists():
             username = f"{base}{n}"
             n += 1

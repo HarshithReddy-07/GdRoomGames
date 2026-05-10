@@ -32,6 +32,7 @@ export type GameStatus = "waiting" | "bidding" | "playing" | "finished";
 export interface GameState {
   type: "state";
   game_code: string;
+  host_username: string;
   status: GameStatus;
   current_round: number;
   max_rounds: number;
@@ -43,21 +44,9 @@ export interface GameState {
   current_trick: TrickCard[];
 }
 
-export interface GameInfo {
-  id: string;
-  code: string;
-  host_username: string;
-  status: GameStatus;
-  num_decks: number;
-  current_round: number;
-  max_rounds: number;
-  trump_suit: string;
-  players: {
-    seat: number;
-    username: string;
-    bid: number;
-    tricks_won: number;
-    total_score: number;
-    is_connected: boolean;
-  }[];
+export interface RoundScore {
+  username: string;
+  bid: number;
+  tricks_won: number;
+  delta: number;
 }

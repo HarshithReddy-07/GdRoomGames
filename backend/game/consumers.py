@@ -11,7 +11,6 @@ class GameConsumer(AsyncWebsocketConsumer):
         self.game_code = self.scope["url_route"]["kwargs"]["game_code"]
         self.room_group = f"game_{self.game_code}"
 
-        # Username from ?username=Arch in the WebSocket URL — no auth needed
         qs = parse_qs(self.scope.get("query_string", b"").decode())
         self.username = (qs.get("username", ["Anonymous"])[0])[:50].strip() or "Anonymous"
 
@@ -27,17 +26,17 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         data = json.loads(text_data)
-        action = data.get("action")
         handlers = {
             "start_game": self.handle_start_game,
             "place_bid":  self.handle_place_bid,
             "play_card":  self.handle_play_card,
+            "end_game":   self.handle_end_game,
         }
-        handler = handlers.get(action)
+        handler = handlers.get(data.get("action"))
         if handler:
             await handler(data)
 
-    # ── Action handlers ──────────────────────────────────────────────────────
+    # ── Action handlers ───────────────────────────────────────────────────────
 
     async def handle_start_game(self, data):
         game = await self.get_game()
@@ -88,6 +87,17 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.db_play_card(game, player, card)
         await self.advance_play_turn(game)
 
+    async def handle_end_game(self, data):
+        """Host can end the game at any time (mid-session)."""
+        game = await self.get_game()
+        if game.host_username != self.username:
+            await self.send_error("Only the host can end the game.")
+            return
+        if game.status == Game.STATUS_FINISHED:
+            return
+        await self.db_update_game(game, status=Game.STATUS_FINISHED)
+        await self.broadcast_state()
+
     # ── Game flow ─────────────────────────────────────────────────────────────
 
     async def start_new_round(self, game):
@@ -99,8 +109,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.db_create_round(game, trump, game.current_round)
         await self.db_deal_hands(players, hands)
         await self.db_reset_bids_and_tricks(players)
-        await self.db_update_game(game, status=Game.STATUS_BIDDING, trump_suit=trump,
-                                   current_player_index=game.lead_player_index)
+        await self.db_update_game(
+            game,
+            status=Game.STATUS_BIDDING,
+            trump_suit=trump,
+            current_player_index=game.lead_player_index,
+        )
         await self.broadcast_state()
 
     async def advance_bid_turn(self, game):
@@ -108,8 +122,11 @@ class GameConsumer(AsyncWebsocketConsumer):
         players = await self.get_players(game)
         all_bid = all(p.bid >= 0 for p in players)
         if all_bid:
-            await self.db_update_game(game, status=Game.STATUS_PLAYING,
-                                       current_player_index=game.lead_player_index)
+            await self.db_update_game(
+                game,
+                status=Game.STATUS_PLAYING,
+                current_player_index=game.lead_player_index,
+            )
             await self.db_create_trick(game)
         else:
             nxt = (game.current_player_index + 1) % len(players)
@@ -128,7 +145,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.broadcast_state()
             return
 
-        # All players have played — determine trick winner
+        # All players have played — determine winner
         trick_data = [
             {
                 "suit": c.suit, "rank": c.rank, "deck_id": c.deck_id,
@@ -143,7 +160,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         await self.db_complete_trick(trick, winner)
 
-        # Check if more tricks remain (any player still has cards)
         fresh_players = await self.get_players(game)
         has_cards = any(len(p.hand) > 0 for p in fresh_players)
 
@@ -157,6 +173,22 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def end_round(self, game, players):
         players_data = [{"bid": p.bid, "tricks_won": p.tricks_won} for p in players]
         deltas = engine.calculate_round_scores(players_data)
+
+        # Broadcast the round summary BEFORE resetting bids/tricks
+        summary_scores = [
+            {
+                "username": p.username,
+                "bid": p.bid,
+                "tricks_won": p.tricks_won,
+                "delta": d,
+            }
+            for p, d in zip(players, deltas)
+        ]
+        await self.channel_layer.group_send(
+            self.room_group,
+            {"type": "round_ended_msg", "scores": summary_scores, "round": game.current_round},
+        )
+
         await self.db_apply_scores(players, deltas)
         await self.db_complete_current_round(game)
 
@@ -176,7 +208,9 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def validate_card_play(self, game, player, card):
         hand = player.hand
         card_in_hand = any(
-            c["suit"] == card["suit"] and c["rank"] == card["rank"] and c["deck_id"] == card.get("deck_id", 1)
+            c["suit"] == card["suit"]
+            and c["rank"] == card["rank"]
+            and c["deck_id"] == card.get("deck_id", 1)
             for c in hand
         )
         if not card_in_hand:
@@ -184,20 +218,26 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         trick = await self.get_current_trick(game)
         if not trick or not trick.lead_suit:
-            return True, ""  # first card of trick — anything goes
+            return True, ""
 
         if card["suit"] == trick.lead_suit:
             return True, ""
 
         has_lead = any(c["suit"] == trick.lead_suit for c in hand)
         if has_lead:
-            return False, f"Must follow lead suit ({trick.lead_suit})."
+            return False, f"You have {trick.lead_suit} — must follow lead suit!"
 
         return True, ""
 
     # ── Broadcast ─────────────────────────────────────────────────────────────
 
     async def broadcast_state(self):
+        """
+        Build state from DB and broadcast to the whole room.
+        All players receive FULL hand data for everyone.
+        Frontend is responsible for showing only your own cards.
+        This is fine for a trusted friend group.
+        """
         state = await self.build_state()
         await self.channel_layer.group_send(
             self.room_group,
@@ -206,6 +246,13 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def game_state(self, event):
         await self.send(text_data=json.dumps({"type": "state", **event["state"]}))
+
+    async def round_ended_msg(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "round_ended",
+            "scores": event["scores"],
+            "round": event["round"],
+        }))
 
     async def send_error(self, message):
         await self.send(text_data=json.dumps({"type": "error", "message": message}))
@@ -223,10 +270,10 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         current_trick_cards = []
         try:
-            current_round = game.rounds.filter(is_complete=False).order_by("-number").first()
-            if current_round:
-                current_trick = current_round.tricks.filter(is_complete=False).order_by("-number").first()
-                if current_trick:
+            cur_round = game.rounds.filter(is_complete=False).order_by("-number").first()
+            if cur_round:
+                cur_trick = cur_round.tricks.filter(is_complete=False).order_by("-number").first()
+                if cur_trick:
                     current_trick_cards = [
                         {
                             "suit": tc.suit,
@@ -236,27 +283,29 @@ class GameConsumer(AsyncWebsocketConsumer):
                             "player_name": tc.player.username,
                             "play_order": tc.play_order,
                         }
-                        for tc in current_trick.cards.select_related("player").order_by("play_order")
+                        for tc in cur_trick.cards.select_related("player").order_by("play_order")
                     ]
         except Exception:
             pass
 
-        players_state = []
-        for p in players:
-            hand = p.hand if p.username == self.username else [{"hidden": True}] * len(p.hand)
-            players_state.append({
+        # Send FULL hand data to everyone — frontend hides other players' cards
+        players_state = [
+            {
                 "seat": p.seat,
                 "username": p.username,
                 "bid": p.bid,
                 "tricks_won": p.tricks_won,
                 "total_score": p.total_score,
                 "hand_count": len(p.hand),
-                "hand": hand,
+                "hand": p.hand,               # ← full hand, no hiding server-side
                 "is_connected": p.is_connected,
-            })
+            }
+            for p in players
+        ]
 
         return {
             "game_code": game.code,
+            "host_username": game.host_username,
             "status": game.status,
             "current_round": game.current_round,
             "max_rounds": game.max_rounds,
@@ -289,9 +338,7 @@ class GameConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_current_trick(self, game):
         r = game.rounds.filter(is_complete=False).order_by("-number").first()
-        if not r:
-            return None
-        return r.tricks.filter(is_complete=False).order_by("-number").first()
+        return r.tricks.filter(is_complete=False).order_by("-number").first() if r else None
 
     @database_sync_to_async
     def get_trick_cards(self, trick):
@@ -303,7 +350,9 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def set_player_connected(self, connected):
-        Player.objects.filter(game__code=self.game_code, username=self.username).update(is_connected=connected)
+        Player.objects.filter(game__code=self.game_code, username=self.username).update(
+            is_connected=connected
+        )
 
     @database_sync_to_async
     def db_start_game(self, game, max_r):
@@ -356,13 +405,21 @@ class GameConsumer(AsyncWebsocketConsumer):
             trick.lead_suit = card["suit"]
             trick.save()
         TrickCard.objects.create(
-            trick=trick, player=player,
-            suit=card["suit"], rank=card["rank"],
-            deck_id=card.get("deck_id", 1), play_order=play_order,
+            trick=trick,
+            player=player,
+            suit=card["suit"],
+            rank=card["rank"],
+            deck_id=card.get("deck_id", 1),
+            play_order=play_order,
         )
+        # Remove card from hand (match on all three fields for 2-deck safety)
         player.hand = [
             c for c in player.hand
-            if not (c["suit"] == card["suit"] and c["rank"] == card["rank"] and c["deck_id"] == card.get("deck_id", 1))
+            if not (
+                c["suit"] == card["suit"]
+                and c["rank"] == card["rank"]
+                and c["deck_id"] == card.get("deck_id", 1)
+            )
         ]
         player.save()
 

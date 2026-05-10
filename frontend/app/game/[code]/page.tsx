@@ -18,12 +18,14 @@ export default function GamePage() {
     if (!saved) { router.push("/"); return; }
     setUsername(saved);
 
-    // Auto-join (idempotent — server ignores if already in game)
+    // joinGame is idempotent — if already in game (any status) it just returns the game
     api.joinGame(saved, code).catch(() => {}).finally(() => setReady(true));
   }, [code, router]);
 
-  const { state, error, connected, startGame, placeBid, playCard } =
-    useGameSocket(code, username ?? "");
+  const {
+    state, error, connected, roundSummary, clearSummary,
+    startGame, placeBid, playCard, endGame,
+  } = useGameSocket(code, username ?? "");
 
   if (!ready || !username) {
     return (
@@ -38,7 +40,7 @@ export default function GamePage() {
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 gap-4">
         <p className="text-red-400 text-center px-4">{error}</p>
         <button onClick={() => router.push("/lobby")} className="text-yellow-400 underline text-sm">
-          Back to lobby
+          ← Back to lobby
         </button>
       </div>
     );
@@ -48,7 +50,7 @@ export default function GamePage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-950 gap-3">
         <div className="w-8 h-8 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
-        <p className="text-gray-500 text-sm">{connected ? "Loading game…" : "Connecting to server…"}</p>
+        <p className="text-gray-500 text-sm">{connected ? "Loading game…" : "Connecting…"}</p>
       </div>
     );
   }
@@ -58,9 +60,13 @@ export default function GamePage() {
       state={state}
       username={username}
       gameCode={code}
+      gameError={error}
+      roundSummary={roundSummary}
+      onClearSummary={clearSummary}
       onStartGame={startGame}
       onBid={placeBid}
       onPlayCard={playCard}
+      onEndGame={endGame}
     />
   );
 }
