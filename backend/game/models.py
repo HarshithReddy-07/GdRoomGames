@@ -30,6 +30,7 @@ class Game(models.Model):
     # Assigned at game start
     teams          = models.JSONField(default=list)   # [[captain_seat, teammate_seat], ...]
     # Round tracking
+    start_round    = models.PositiveSmallIntegerField(default=1)
     current_round  = models.PositiveSmallIntegerField(default=0)
     max_rounds     = models.PositiveSmallIntegerField(default=0)
     trump_suit     = models.CharField(max_length=10, blank=True)

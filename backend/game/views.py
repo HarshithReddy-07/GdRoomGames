@@ -21,13 +21,16 @@ class CreateGameView(APIView):
     def post(self, request):
         username         = request.data.get("username", "").strip()[:50]
         num_decks        = max(1, min(2, int(request.data.get("num_decks", 1))))
-        expected_players = max(2, min(7, int(request.data.get("expected_players", 4))))
+        expected_players = max(2, min(8, int(request.data.get("expected_players", 4))))
         teams_enabled    = bool(request.data.get("teams_enabled", False))
         # num_rounds = 0 means "use the formula max at start time"
         num_rounds_raw   = int(request.data.get("num_rounds", 0))
         # Clamp to valid range; 0 stays 0 (= use max)
         abs_max          = (52 * num_decks) // expected_players
         num_rounds       = max(1, min(abs_max, num_rounds_raw)) if num_rounds_raw > 0 else 0
+        
+        start_round_raw  = int(request.data.get("start_round", 1))
+        start_round      = max(1, min(num_rounds if num_rounds > 0 else abs_max, start_round_raw))
 
         if not username:
             return Response({"error": "Username required."}, status=400)
@@ -42,6 +45,7 @@ class CreateGameView(APIView):
             num_decks=num_decks,
             expected_players=expected_players,
             teams_enabled=teams_enabled,
+            start_round=start_round,
             max_rounds=num_rounds,   # 0 = host didn't pick, use formula at start
         )
         Player.objects.create(game=game, username=username, seat=0)
@@ -69,8 +73,8 @@ class JoinGameView(APIView):
         if game.status != Game.STATUS_WAITING:
             return Response({"error": "Game has already started."}, status=400)
 
-        if game.players.count() >= 7:
-            return Response({"error": "Room is full (max 7 players)."}, status=400)
+        if game.players.count() >= game.expected_players:
+            return Response({"error": f"Room is full (max {game.expected_players} players)."}, status=400)
 
         # Handle name collision
         base, n = username, 2

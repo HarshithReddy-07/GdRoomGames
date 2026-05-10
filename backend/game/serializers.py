@@ -16,5 +16,5 @@ class GameSerializer(serializers.ModelSerializer):
         fields = [
             "id", "code", "host_username", "status",
             "num_decks", "expected_players", "teams_enabled", "teams",
-            "current_round", "max_rounds", "trump_suit", "players",
+            "start_round", "current_round", "max_rounds", "trump_suit", "players",
         ]

@@ -499,7 +499,7 @@ class GameConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def db_start_game(self, game, max_r, teams):
         game.status        = Game.STATUS_BIDDING
-        game.current_round = 1
+        game.current_round = game.start_round
         game.max_rounds    = max_r
         game.teams         = teams
         game.save()

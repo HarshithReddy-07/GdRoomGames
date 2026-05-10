@@ -25,13 +25,23 @@ export default function LobbyPage() {
   const teamsAllowed = numPlayers >= 4 && numPlayers % 2 === 0;
   const maxR = Math.floor((52 * numDecks) / numPlayers);
 
+  const [startRound, setStartRound] = useState(1);
+
   // Rounds picker (default to max)
   const [numRounds, setNumRounds] = useState(maxR);
-  // Keep numRounds in range whenever player/deck count changes
+  // Keep numRounds and startRound in range whenever player/deck count changes
   useEffect(() => {
-    setNumRounds(Math.min(numRounds, maxR) || maxR);
+    const newMaxRounds = Math.min(numRounds, maxR) || maxR;
+    setNumRounds(newMaxRounds);
+    setStartRound(Math.min(startRound, newMaxRounds) || 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maxR]);
+
+  useEffect(() => {
+    if (startRound > numRounds) {
+      setStartRound(numRounds);
+    }
+  }, [numRounds]);
 
   useEffect(() => {
     const saved = localStorage.getItem("os_username");
@@ -48,7 +58,7 @@ export default function LobbyPage() {
     if (!username) return;
     setError(""); setLoading(true);
     try {
-      const game = await api.createGame(username, numDecks, numPlayers, teamsOn, numRounds);
+      const game = await api.createGame(username, numDecks, numPlayers, teamsOn, numRounds, startRound);
       router.push(`/game/${game.code}`);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
@@ -108,8 +118,8 @@ export default function LobbyPage() {
               <label className="block text-gray-400 text-xs font-semibold uppercase tracking-widest mb-2">
                 Players
               </label>
-              <div className="grid grid-cols-6 gap-1.5 mb-5">
-                {[2, 3, 4, 5, 6, 7].map((n) => (
+              <div className="grid grid-cols-7 gap-1.5 mb-5">
+                {[2, 3, 4, 5, 6, 7, 8].map((n) => (
                   <button
                     key={n}
                     onClick={() => setNumPlayers(n)}
@@ -144,26 +154,50 @@ export default function LobbyPage() {
                 ))}
               </div>
 
+              {/* Start Round */}
+              <label className="block text-gray-400 text-xs font-semibold uppercase tracking-widest mb-2">
+                Start Round
+                <span className="ml-2 text-yellow-400 font-bold normal-case tracking-normal">
+                  Round {startRound}
+                </span>
+                <span className="ml-1 text-gray-600 font-normal tracking-normal">({startRound} cards each)</span>
+              </label>
+              <div className="mb-5">
+                <input
+                  type="range"
+                  min={1}
+                  max={numRounds}
+                  value={startRound}
+                  onChange={(e) => setStartRound(Number(e.target.value))}
+                  className="w-full h-2 rounded-full appearance-none bg-white/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-yellow-400 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:bg-yellow-400 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full cursor-pointer"
+                />
+                <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                  <span>1</span>
+                  {numRounds > 2 && <span>{Math.ceil((1 + numRounds) / 2)}</span>}
+                  <span>{numRounds}</span>
+                </div>
+              </div>
+
               {/* Rounds */}
               <label className="block text-gray-400 text-xs font-semibold uppercase tracking-widest mb-2">
-                Rounds
+                End Round
                 <span className="ml-2 text-yellow-400 font-bold normal-case tracking-normal">
-                  {numRounds} {numRounds === 1 ? "round" : "rounds"}
+                  Round {numRounds}
                 </span>
                 <span className="ml-1 text-gray-600 font-normal tracking-normal">/ max {maxR}</span>
               </label>
               <div className="mb-5">
                 <input
                   type="range"
-                  min={1}
+                  min={startRound}
                   max={maxR}
                   value={numRounds}
                   onChange={(e) => setNumRounds(Number(e.target.value))}
                   className="w-full h-2 rounded-full appearance-none bg-white/10 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-yellow-400 [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:bg-yellow-400 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full cursor-pointer"
                 />
                 <div className="flex justify-between text-[11px] text-gray-600 mt-1">
-                  <span>1</span>
-                  {maxR > 2 && <span>{Math.ceil(maxR / 2)}</span>}
+                  <span>{startRound}</span>
+                  {maxR > startRound + 1 && <span>{Math.ceil((startRound + maxR) / 2)}</span>}
                   <span>{maxR}</span>
                 </div>
               </div>
@@ -192,7 +226,7 @@ export default function LobbyPage() {
 
               {/* Info strip */}
               <div className="bg-black/30 rounded-xl px-3 py-2 mb-5 text-xs text-gray-500 space-y-0.5">
-                <p>Rounds: <span className="text-gray-300">1 → {numRounds} cards each</span></p>
+                <p>Rounds: <span className="text-gray-300">{startRound} → {numRounds} ({numRounds - startRound + 1} rounds total)</span></p>
                 <p>Players: <span className="text-gray-300">{numPlayers} expected</span></p>
                 {numRounds < maxR && (
                   <p className="text-amber-500">
