@@ -9,14 +9,41 @@ export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [hint, setHint] = useState(false);
+  const [serverReady, setServerReady] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("os_username");
-    if (saved) router.push("/lobby");
+    if (saved) {
+      router.push("/lobby");
+      return;
+    }
+
+    // Ping mechanism to wake up Render free tier backend
+    let intervalId: NodeJS.Timeout;
+
+    const checkServer = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${apiUrl}/api/game/health/`, { cache: 'no-store' });
+        if (res.ok) {
+          setServerReady(true);
+          clearInterval(intervalId);
+        }
+      } catch (e) {
+        // Backend is probably asleep (Render free tier)
+      }
+    };
+
+    checkServer();
+    intervalId = setInterval(checkServer, 3000);
+
+    return () => clearInterval(intervalId);
   }, [router]);
 
   function enter(e: React.FormEvent) {
     e.preventDefault();
+    if (!serverReady) return; // Prevent joining if server is asleep
+
     const trimmed = name.trim();
     if (!trimmed) { setHint(true); return; }
     localStorage.setItem("os_username", trimmed);
@@ -67,12 +94,24 @@ export default function Home() {
           />
           {hint && <p className="text-red-400 text-xs text-center">Enter a name first!</p>}
           <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
+            whileHover={serverReady ? { scale: 1.03 } : {}}
+            whileTap={serverReady ? { scale: 0.97 } : {}}
             type="submit"
-            className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-extrabold py-3 rounded-xl text-lg transition-all shadow-lg shadow-yellow-400/20"
+            disabled={!serverReady}
+            className={`${
+              serverReady 
+                ? "bg-yellow-400 hover:bg-yellow-300 text-gray-900 shadow-yellow-400/20" 
+                : "bg-gray-700 text-gray-500 cursor-not-allowed"
+            } font-extrabold py-3 rounded-xl text-lg transition-all shadow-lg flex items-center justify-center gap-2`}
           >
-            Let's Play →
+            {serverReady ? (
+              "Let's Play →"
+            ) : (
+              <>
+                <div className="w-4 h-4 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm">Waking up server (~30s)...</span>
+              </>
+            )}
           </motion.button>
         </form>
       </motion.div>

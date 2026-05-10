@@ -91,3 +91,10 @@ class GameDetailView(APIView):
         except Game.DoesNotExist:
             return Response({"error": "Not found."}, status=404)
         return Response(GameSerializer(game).data)
+
+
+class HealthCheckView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({"status": "ok"}, status=status.HTTP_200_OK)
