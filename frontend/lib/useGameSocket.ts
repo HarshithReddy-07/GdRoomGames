@@ -13,28 +13,44 @@ export function useGameSocket(gameCode: string, username: string) {
 
   useEffect(() => {
     if (!username) return;
-    const url = `${WS_BASE}/ws/game/${gameCode}/?username=${encodeURIComponent(username)}`;
-    const socket = new WebSocket(url);
-    ws.current = socket;
+    let socket: WebSocket;
+    let timeout: NodeJS.Timeout;
 
-    socket.onopen = () => { setConnected(true); setError(null); };
-    socket.onclose = () => setConnected(false);
-    socket.onerror = () => setError("Connection lost — check the server is running.");
+    const connect = () => {
+      const url = `${WS_BASE}/ws/game/${gameCode}/?username=${encodeURIComponent(username)}`;
+      socket = new WebSocket(url);
+      ws.current = socket;
 
-    socket.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "state") {
-        setState(msg);
-      } else if (msg.type === "error") {
-        // Show briefly then clear
-        setError(msg.message);
-        setTimeout(() => setError(null), 3000);
-      } else if (msg.type === "round_ended") {
-        setRoundSummary({ round: msg.round, scores: msg.scores });
-      }
+      socket.onopen = () => { setConnected(true); setError(null); };
+      socket.onclose = () => {
+        setConnected(false);
+        // Auto-reconnect after 2 seconds if disconnected (e.g., mobile browser slept)
+        timeout = setTimeout(connect, 2000);
+      };
+      socket.onerror = () => setError("Connection lost — check the server is running.");
+
+      socket.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "state") {
+          setState(msg);
+        } else if (msg.type === "error") {
+          setError(msg.message);
+          setTimeout(() => setError(null), 3000);
+        } else if (msg.type === "round_ended") {
+          setRoundSummary({ round: msg.round, scores: msg.scores });
+        }
+      };
     };
 
-    return () => socket.close();
+    connect();
+
+    return () => {
+      clearTimeout(timeout);
+      if (socket) {
+        socket.onclose = null; // Prevent auto-reconnect on unmount
+        socket.close();
+      }
+    };
   }, [gameCode, username]);
 
   const send = useCallback((data: object) => {
@@ -43,11 +59,12 @@ export function useGameSocket(gameCode: string, username: string) {
     }
   }, []);
 
-  const startGame   = useCallback(() => send({ action: "start_game" }), [send]);
-  const placeBid    = useCallback((bid: number) => send({ action: "place_bid", bid }), [send]);
-  const playCard    = useCallback((card: Card) => send({ action: "play_card", card }), [send]);
-  const endGame     = useCallback(() => send({ action: "end_game" }), [send]);
+  const startGame    = useCallback(() => send({ action: "start_game" }), [send]);
+  const cancelGame   = useCallback(() => send({ action: "cancel_game" }), [send]);
+  const placeBid     = useCallback((bid: number) => send({ action: "place_bid", bid }), [send]);
+  const playCard     = useCallback((card: Card) => send({ action: "play_card", card }), [send]);
+  const endGame      = useCallback(() => send({ action: "end_game" }), [send]);
   const clearSummary = useCallback(() => setRoundSummary(null), []);
 
-  return { state, error, connected, roundSummary, clearSummary, startGame, placeBid, playCard, endGame };
+  return { state, error, connected, roundSummary, clearSummary, startGame, cancelGame, placeBid, playCard, endGame };
 }

@@ -8,9 +8,10 @@ interface Props {
   username: string;
   gameCode: string;
   onStartGame: () => void;
+  onCancelGame: () => void;
 }
 
-export default function WaitingRoom({ state, username, gameCode, onStartGame }: Props) {
+export default function WaitingRoom({ state, username, gameCode, onStartGame, onCancelGame }: Props) {
   const [copied, setCopied] = useState(false);
 
   const isHost   = state.host_username === username;
@@ -168,15 +169,26 @@ export default function WaitingRoom({ state, username, gameCode, onStartGame }: 
       >
         {isHost ? (
           <>
-            <motion.button
-              whileHover={canStart ? { scale: 1.06 } : {}}
-              whileTap={canStart ? { scale: 0.96 } : {}}
-              onClick={onStartGame}
-              disabled={!canStart}
-              className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed text-gray-900 font-extrabold px-14 py-3.5 rounded-full text-lg shadow-xl shadow-yellow-400/20 transition-all"
-            >
-              Start Game →
-            </motion.button>
+            <div className="flex items-center gap-3">
+              <motion.button
+                whileHover={canStart ? { scale: 1.06 } : {}}
+                whileTap={canStart ? { scale: 0.96 } : {}}
+                onClick={onStartGame}
+                disabled={!canStart}
+                className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 disabled:cursor-not-allowed text-gray-900 font-extrabold px-10 py-3.5 rounded-full text-lg shadow-xl shadow-yellow-400/20 transition-all"
+              >
+                Start Game →
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={onCancelGame}
+                className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white font-semibold px-4 py-3.5 rounded-full text-sm transition-all border border-red-500/30"
+              >
+                Cancel Room
+              </motion.button>
+            </div>
 
             {!canStart && (
               <p className="text-gray-600 text-xs">Need at least 2 players to start</p>

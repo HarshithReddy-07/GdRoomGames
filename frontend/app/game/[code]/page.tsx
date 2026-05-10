@@ -25,7 +25,7 @@ export default function GamePage() {
 
   const {
     state, error, connected, roundSummary, clearSummary,
-    startGame, placeBid, playCard, endGame,
+    startGame, cancelGame, placeBid, playCard, endGame,
   } = useGameSocket(code, username ?? "");
 
   // ── Loading states ────────────────────────────────────────────────────────
@@ -61,6 +61,7 @@ export default function GamePage() {
         username={username}
         gameCode={code}
         onStartGame={startGame}
+        onCancelGame={cancelGame}
       />
     );
   }

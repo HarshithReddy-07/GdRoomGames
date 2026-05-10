@@ -56,6 +56,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             "place_bid":  self.handle_place_bid,
             "play_card":  self.handle_play_card,
             "end_game":   self.handle_end_game,
+            "cancel_game": self.handle_cancel_game,
         }
         handler = handlers.get(data.get("action"))
         if handler:
@@ -136,6 +137,17 @@ class GameConsumer(AsyncWebsocketConsumer):
             return
         await self.db_update_game(game, status=Game.STATUS_FINISHED)
         await self.broadcast_state()
+
+    async def handle_cancel_game(self, data):
+        game = await self.get_game()
+        if game.host_username != self.username or game.status != Game.STATUS_WAITING:
+            return
+        
+        # Broadcast cancellation so clients are kicked to lobby
+        await self.channel_layer.group_send(
+            self.room_group, {"type": "game_cancelled"}
+        )
+        await self.db_delete_game(game)
 
     # ── Flow ──────────────────────────────────────────────────────────────────
 
@@ -324,6 +336,9 @@ class GameConsumer(AsyncWebsocketConsumer):
             "round": event["round"],
         }))
 
+    async def game_cancelled(self, event):
+        await self.send(text_data=json.dumps({"type": "error", "message": "Host cancelled the room."}))
+
     async def send_error(self, message):
         await self.send(text_data=json.dumps({"type": "error", "message": message}))
 
@@ -437,6 +452,10 @@ class GameConsumer(AsyncWebsocketConsumer):
         Player.objects.filter(
             game__code=self.game_code, username=self.username
         ).update(is_connected=connected)
+
+    @database_sync_to_async
+    def db_delete_game(self, game):
+        game.delete()
 
     @database_sync_to_async
     def db_start_game(self, game, max_r, teams):
