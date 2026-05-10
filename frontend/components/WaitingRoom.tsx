@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import type { GameState } from "@/lib/types";
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
 
 export default function WaitingRoom({ state, username, gameCode, onStartGame, onCancelGame }: Props) {
   const [copied, setCopied] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const isHost   = state.host_username === username;
   const joined   = state.players.length;
@@ -183,7 +184,7 @@ export default function WaitingRoom({ state, username, gameCode, onStartGame, on
               <motion.button
                 whileHover={{ scale: 1.06 }}
                 whileTap={{ scale: 0.96 }}
-                onClick={onCancelGame}
+                onClick={() => setShowCancelConfirm(true)}
                 className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white font-semibold px-4 py-3.5 rounded-full text-sm transition-all border border-red-500/30"
               >
                 Cancel Room
@@ -218,6 +219,42 @@ export default function WaitingRoom({ state, username, gameCode, onStartGame, on
       <p className="text-gray-700 text-xs">
         Logged in as <span className="text-gray-500 font-medium">{username}</span>
       </p>
+
+      {/* ── Cancel confirm modal ────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showCancelConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.85 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.85 }}
+              className="bg-gray-900 border border-white/10 rounded-2xl p-6 max-w-xs w-full shadow-2xl text-center"
+            >
+              <p className="text-white font-bold text-lg mb-2">Cancel Room?</p>
+              <p className="text-gray-400 text-sm mb-6">This will permanently delete this room and kick everyone out to the lobby.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-semibold transition-all"
+                >
+                  Go Back
+                </button>
+                <button
+                  onClick={() => { onCancelGame(); setShowCancelConfirm(false); }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold transition-all"
+                >
+                  Cancel Room
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

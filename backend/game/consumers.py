@@ -242,11 +242,31 @@ class GameConsumer(AsyncWebsocketConsumer):
         winning_seat = trick_data[win_idx]["player_index"]
         winner       = next(p for p in players if p.seat == winning_seat)
 
+        # Broadcast state so everyone sees the final card on the table
+        await self.broadcast_state()
+
+        # Send trick winner notification so UI can show "X won the trick"
+        await self.channel_layer.group_send(
+            self.room_group,
+            {"type": "trick_winner_msg", "winner": winner.username, "seat": winning_seat}
+        )
+
+        import asyncio
+        asyncio.create_task(self.delayed_next_trick(game.code, trick.id, winner.id))
+
+    async def delayed_next_trick(self, game_code, trick_id, winner_id):
+        import asyncio
+        await asyncio.sleep(2.5)
+
+        game = await self.get_game_by_code(game_code)
+        trick = await self.get_trick_by_id(trick_id)
+        winner = await self.get_player_by_id(winner_id)
+
         await self.db_complete_trick(trick, winner)
 
         fresh = await self.get_players(game)
         if any(len(p.hand) > 0 for p in fresh):
-            await self.db_update_game(game, current_player_index=winning_seat)
+            await self.db_update_game(game, current_player_index=winner.seat)
             await self.db_create_trick(game)
             await self.broadcast_state()
         else:
@@ -336,8 +356,15 @@ class GameConsumer(AsyncWebsocketConsumer):
             "round": event["round"],
         }))
 
+    async def trick_winner_msg(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "trick_winner",
+            "winner": event["winner"],
+            "seat": event["seat"],
+        }))
+
     async def game_cancelled(self, event):
-        await self.send(text_data=json.dumps({"type": "error", "message": "Host cancelled the room."}))
+        await self.send(text_data=json.dumps({"type": "game_cancelled", "message": "Host cancelled the room."}))
 
     async def send_error(self, message):
         await self.send(text_data=json.dumps({"type": "error", "message": message}))
@@ -417,6 +444,18 @@ class GameConsumer(AsyncWebsocketConsumer):
         }
 
     # ── DB helpers ────────────────────────────────────────────────────────────
+
+    @database_sync_to_async
+    def get_game_by_code(self, game_code):
+        return Game.objects.get(code=game_code)
+
+    @database_sync_to_async
+    def get_trick_by_id(self, trick_id):
+        return Trick.objects.get(id=trick_id)
+
+    @database_sync_to_async
+    def get_player_by_id(self, player_id):
+        return Player.objects.get(id=player_id)
 
     @database_sync_to_async
     def get_game(self):

@@ -24,7 +24,7 @@ export default function GamePage() {
   }, [code, router]);
 
   const {
-    state, error, connected, roundSummary, clearSummary,
+    state, error, connected, roundSummary, trickWinner, clearSummary,
     startGame, cancelGame, placeBid, playCard, endGame,
   } = useGameSocket(code, username ?? "");
 
@@ -74,6 +74,7 @@ export default function GamePage() {
       gameCode={code}
       gameError={error}
       roundSummary={roundSummary}
+      trickWinner={trickWinner}
       onClearSummary={clearSummary}
       onStartGame={startGame}
       onBid={placeBid}

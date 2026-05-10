@@ -11,6 +11,8 @@ export function useGameSocket(gameCode: string, username: string) {
   const [connected, setConnected] = useState(false);
   const [roundSummary, setRoundSummary] = useState<{ round: number; scores: RoundScore[] } | null>(null);
 
+  const [trickWinner, setTrickWinner] = useState<{ winner: string; seat: number } | null>(null);
+
   useEffect(() => {
     if (!username) return;
     let socket: WebSocket;
@@ -33,11 +35,18 @@ export function useGameSocket(gameCode: string, username: string) {
         const msg = JSON.parse(e.data);
         if (msg.type === "state") {
           setState(msg);
+          if (msg.current_trick && msg.current_trick.length === 0) {
+            setTrickWinner(null);
+          }
         } else if (msg.type === "error") {
           setError(msg.message);
           setTimeout(() => setError(null), 3000);
         } else if (msg.type === "round_ended") {
           setRoundSummary({ round: msg.round, scores: msg.scores });
+        } else if (msg.type === "trick_winner") {
+          setTrickWinner({ winner: msg.winner, seat: msg.seat });
+        } else if (msg.type === "game_cancelled") {
+          window.location.href = "/lobby";
         }
       };
     };
@@ -66,5 +75,5 @@ export function useGameSocket(gameCode: string, username: string) {
   const endGame      = useCallback(() => send({ action: "end_game" }), [send]);
   const clearSummary = useCallback(() => setRoundSummary(null), []);
 
-  return { state, error, connected, roundSummary, clearSummary, startGame, cancelGame, placeBid, playCard, endGame };
+  return { state, error, connected, roundSummary, trickWinner, clearSummary, startGame, cancelGame, placeBid, playCard, endGame };
 }

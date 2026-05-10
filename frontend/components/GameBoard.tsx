@@ -15,6 +15,7 @@ interface Props {
   gameCode: string;
   gameError: string | null;
   roundSummary: { round: number; scores: RoundScore[] } | null;
+  trickWinner: { winner: string; seat: number } | null;
   onClearSummary: () => void;
   onStartGame: () => void;
   onBid: (bid: number) => void;
@@ -37,6 +38,7 @@ export default function GameBoard({
   gameCode,
   gameError,
   roundSummary,
+  trickWinner,
   onClearSummary,
   onStartGame,
   onBid,
@@ -103,10 +105,10 @@ export default function GameBoard({
           )}
           {/* Trump — always visible, symbol + name */}
           {state.trump_suit && (
-            <span className={`flex items-center gap-1 text-xs font-semibold shrink-0 ${SUIT_COL[state.trump_suit]}`}>
+            <span className={`flex items-center gap-1 font-semibold shrink-0 ${SUIT_COL[state.trump_suit]}`}>
               <span className="text-gray-600 font-normal text-[10px]">trump</span>
-              <span>{SUIT_SYMBOL[state.trump_suit]}</span>
-              <span className="hidden sm:inline">{SUIT_NAME[state.trump_suit]}</span>
+              <span className="text-2xl leading-none">{SUIT_SYMBOL[state.trump_suit]}</span>
+              <span className="hidden sm:inline text-sm">{SUIT_NAME[state.trump_suit]}</span>
             </span>
           )}
         </div>
@@ -237,11 +239,11 @@ export default function GameBoard({
                       whileTap={myTurn && isActive ? { scale: 0.93 } : {}}
                     >
                       <Card
-                        card={card}
+                         card={card}
                         small={useSmallCards}
                         selected={selectedCard === cardKey(card)}
                         onClick={
-                          state.status === "playing" && myTurn
+                          state.status === "playing" && myTurn && !trickWinner
                             ? () => handleCardClick(card)
                             : undefined
                         }
@@ -255,7 +257,7 @@ export default function GameBoard({
               </div>
 
               {/* Play hint */}
-              {state.status === "playing" && myTurn && (
+              {state.status === "playing" && myTurn && !trickWinner && (
                 <p className="text-yellow-300 text-[11px] text-center mt-1.5 shrink-0 font-semibold">
                   {selectedCard ? "Tap again to play →" : "Tap a card to select"}
                 </p>
@@ -273,8 +275,22 @@ export default function GameBoard({
               />
 
               {/* Status / action area */}
-              <div className="w-full max-w-xs flex flex-col items-center gap-1.5">
-                {state.status === "bidding" && (
+              <div className="w-full max-w-xs flex flex-col items-center gap-1.5 min-h-[40px]">
+                {trickWinner ? (
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0, y: 10 }}
+                    animate={{ scale: 1, opacity: 1, y: 0 }}
+                    className="flex flex-col items-center"
+                  >
+                    <p className="text-emerald-400 font-bold text-sm bg-emerald-400/10 px-4 py-1.5 rounded-full border border-emerald-400/30 shadow-lg mb-1">
+                      {trickWinner.winner === username ? "You won the trick!" : `${trickWinner.winner} won the trick!`}
+                    </p>
+                    <p className="text-[10px] text-gray-500 flex items-center gap-1">
+                      <span className="w-2 h-2 border-2 border-gray-500 border-t-transparent rounded-full animate-spin inline-block" />
+                      Preparing next trick...
+                    </p>
+                  </motion.div>
+                ) : state.status === "bidding" ? (
                   <>
                     {myTurn ? (
                       <BidPanel
@@ -300,12 +316,12 @@ export default function GameBoard({
                       </motion.p>
                     )}
                   </>
-                )}
-
-                {state.status === "playing" && !myTurn && (
-                  <p className="text-gray-600 text-xs text-center">
-                    Waiting for {state.players[state.current_player_index]?.username}…
-                  </p>
+                ) : (
+                  state.status === "playing" && !myTurn && (
+                    <p className="text-gray-600 text-xs text-center">
+                      Waiting for {state.players[state.current_player_index]?.username}…
+                    </p>
+                  )
                 )}
               </div>
             </div>
