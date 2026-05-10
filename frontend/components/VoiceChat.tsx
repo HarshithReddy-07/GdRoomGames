@@ -53,9 +53,8 @@ export default function VoiceChat({ gameCode, username }: Props) {
         if (mediaType === "audio") user.audioTrack?.play();
       });
 
-      // Unique UID per session tab — prevents UID_CONFLICT across tabs/browsers
-      const uid = makeAgoraUid(username);
-      await client.join(appId, gameCode, null, uid);
+      // Let Agora automatically generate a guaranteed-unique Integer UID
+      await client.join(appId, gameCode, null, null);
 
       const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
       localTrackRef.current = micTrack;
