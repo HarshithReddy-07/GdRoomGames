@@ -29,7 +29,7 @@ export interface TrickCard {
   play_order: number;
 }
 
-export type GameStatus = "waiting" | "bidding" | "playing" | "finished";
+export type GameStatus = "waiting" | "bidding" | "playing" | "finished" | "prompt";
 
 export interface GameState {
   type: "state";
@@ -39,6 +39,7 @@ export interface GameState {
   current_round: number;
   max_rounds: number;
   trump_suit: Suit | "";
+  trump_card?: Card | null;
   current_player_index: number;
   lead_player_index: number;
   round_bid_lead_seat: number;

@@ -57,6 +57,9 @@ class GameConsumer(AsyncWebsocketConsumer):
             "play_card":  self.handle_play_card,
             "end_game":   self.handle_end_game,
             "cancel_game": self.handle_cancel_game,
+            "send_chat":   self.handle_send_chat,
+            "extend_game": self.handle_extend_game,
+            "finish_game": self.handle_finish_game,
         }
         handler = handlers.get(data.get("action"))
         if handler:
@@ -149,26 +152,79 @@ class GameConsumer(AsyncWebsocketConsumer):
         )
         await self.db_delete_game(game)
 
+    async def handle_send_chat(self, data):
+        message = data.get("message", "").strip()[:200]
+        if not message:
+            return
+        await self.channel_layer.group_send(
+            self.room_group,
+            {
+                "type": "chat_message_msg",
+                "username": self.username,
+                "message": message,
+            }
+        )
+
+    async def handle_extend_game(self, data):
+        game = await self.get_game()
+        if game.host_username != self.username:
+            await self.send_error("Only the host can extend the game.")
+            return
+        if game.status != Game.STATUS_PROMPT:
+            return
+
+        players = await self.get_players(game)
+        actual_max = engine.max_rounds(len(players), game.num_decks)
+        if game.max_rounds >= actual_max:
+            await self.send_error("Reached maximum possible rounds.")
+            return
+
+        # Increment max_rounds and start next round
+        new_lead = (game.lead_player_index + 1) % len(players)
+        await self.db_update_game(
+            game,
+            max_rounds=game.max_rounds + 1,
+            current_round=game.current_round + 1,
+            lead_player_index=new_lead,
+        )
+        await self.start_new_round(game)
+
+    async def handle_finish_game(self, data):
+        game = await self.get_game()
+        if game.host_username != self.username:
+            await self.send_error("Only the host can end the game.")
+            return
+        if game.status != Game.STATUS_PROMPT:
+            return
+
+        await self.db_update_game(game, status=Game.STATUS_FINISHED)
+        await self.broadcast_state()
+
     # ── Flow ──────────────────────────────────────────────────────────────────
 
     async def start_new_round(self, game):
         game    = await self.get_game()
         players = await self.get_players(game)
-        trump   = engine.pick_trump()
-        hands   = engine.deal_cards(len(players), game.current_round, game.num_decks)
+        hands, trump_card = engine.deal_cards(len(players), game.current_round, game.num_decks)
+        trump_suit = trump_card["suit"]
 
-        await self.db_create_round(game, trump, game.current_round)
+        await self.db_create_round(game, trump_card, game.current_round)
         await self.db_deal_hands(players, hands)
         await self.db_reset_bids_and_tricks(players)
 
-        # First bidder: in teams mode lead_player_index is always the lead team's captain;
+        # First bidder: in teams mode lead_player_index's team captain starts bidding;
         # in solo mode it's just the lead player.
-        first_bid_idx = game.lead_player_index
+        if game.teams_enabled and game.teams:
+            lead_team_idx = team_index_for_seat(game, game.lead_player_index)
+            first_bid_idx = game.teams[lead_team_idx][0]
+        else:
+            first_bid_idx = game.lead_player_index
 
         await self.db_update_game(
             game,
             status=Game.STATUS_BIDDING,
-            trump_suit=trump,
+            trump_suit=trump_suit,
+            trump_card=trump_card,
             current_player_index=first_bid_idx,
         )
         await self.broadcast_state()
@@ -186,11 +242,8 @@ class GameConsumer(AsyncWebsocketConsumer):
                 lambda i: players[i].seat in caps and players[i].bid < 0,
             )
             if next_idx == -1:
-                # All captains have bid → play starts with first seat of the team
-                # immediately after the team that led bidding this round.
-                lead_team = team_index_for_seat(game, game.lead_player_index)
-                next_team = (lead_team + 1) % len(game.teams)
-                play_first_seat = game.teams[next_team][0]
+                # All captains have bid → play starts with the player clockwise after the lead player of this round.
+                play_first_seat = (game.lead_player_index + 1) % len(players)
                 await self.db_update_game(
                     game, status=Game.STATUS_PLAYING,
                     current_player_index=play_first_seat,
@@ -297,17 +350,16 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         game = await self.get_game()
         if game.current_round >= game.max_rounds:
-            await self.db_update_game(game, status=Game.STATUS_FINISHED)
+            actual_max = engine.max_rounds(len(players), game.num_decks)
+            if game.max_rounds < actual_max:
+                await self.db_update_game(game, status=Game.STATUS_PROMPT)
+            else:
+                await self.db_update_game(game, status=Game.STATUS_FINISHED)
             await self.broadcast_state()
             return
 
-        if game.teams_enabled and game.teams:
-            # Rotate lead to the captain of the next team in sequence
-            lead_team = team_index_for_seat(game, game.lead_player_index)
-            next_lead_team = (lead_team + 1) % len(game.teams)
-            new_lead = game.teams[next_lead_team][0]  # captain seat = player index
-        else:
-            new_lead = (game.lead_player_index + 1) % len(players)
+        # Lead player index always rotates clockwise among all players, regardless of mode
+        new_lead = (game.lead_player_index + 1) % len(players)
         await self.db_update_game(
             game,
             current_round=game.current_round + 1,
@@ -367,6 +419,13 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def game_cancelled(self, event):
         await self.send(text_data=json.dumps({"type": "game_cancelled", "message": "Host cancelled the room."}))
+
+    async def chat_message_msg(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "chat_message",
+            "username": event["username"],
+            "message": event["message"],
+        }))
 
     async def send_error(self, message):
         await self.send(text_data=json.dumps({"type": "error", "message": message}))
@@ -431,9 +490,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Round leader seats for header display
         if game.teams_enabled and game.teams:
             lead_team_idx  = team_index_for_seat(game, game.lead_player_index)
-            next_team_idx  = (lead_team_idx + 1) % len(game.teams)
-            round_bid_lead_seat  = game.lead_player_index
-            round_play_lead_seat = game.teams[next_team_idx][0]
+            round_bid_lead_seat  = game.teams[lead_team_idx][0]
+            round_play_lead_seat = (game.lead_player_index + 1) % len(players)
         else:
             n = len(players)
             round_bid_lead_seat  = game.lead_player_index
@@ -446,6 +504,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             "current_round":  game.current_round,
             "max_rounds":     game.max_rounds,
             "trump_suit":     game.trump_suit,
+            "trump_card":     game.trump_card,
             "current_player_index": game.current_player_index,
             "lead_player_index":    game.lead_player_index,
             "round_bid_lead_seat":  round_bid_lead_seat,
@@ -526,10 +585,10 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.save()
 
     @database_sync_to_async
-    def db_create_round(self, game, trump, cards_per):
+    def db_create_round(self, game, trump_card, cards_per):
         return Round.objects.create(
             game=game, number=game.current_round,
-            trump_suit=trump, cards_per_player=cards_per,
+            trump_suit=trump_card["suit"], trump_card=trump_card, cards_per_player=cards_per,
         )
 
     @database_sync_to_async

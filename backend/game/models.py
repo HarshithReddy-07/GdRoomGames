@@ -12,11 +12,13 @@ class Game(models.Model):
     STATUS_BIDDING  = "bidding"
     STATUS_PLAYING  = "playing"
     STATUS_FINISHED = "finished"
+    STATUS_PROMPT   = "prompt"
     STATUS_CHOICES  = [
         (STATUS_WAITING,  "Waiting"),
         (STATUS_BIDDING,  "Bidding"),
         (STATUS_PLAYING,  "Playing"),
         (STATUS_FINISHED, "Finished"),
+        (STATUS_PROMPT,   "Prompt"),
     ]
 
     id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -34,6 +36,7 @@ class Game(models.Model):
     current_round  = models.PositiveSmallIntegerField(default=0)
     max_rounds     = models.PositiveSmallIntegerField(default=0)
     trump_suit     = models.CharField(max_length=10, blank=True)
+    trump_card     = models.JSONField(default=dict, blank=True, null=True)
     current_player_index = models.PositiveSmallIntegerField(default=0)
     lead_player_index    = models.PositiveSmallIntegerField(default=0)
     created_at     = models.DateTimeField(auto_now_add=True)
@@ -64,6 +67,7 @@ class Round(models.Model):
     game            = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="rounds")
     number          = models.PositiveSmallIntegerField()
     trump_suit      = models.CharField(max_length=10)
+    trump_card      = models.JSONField(default=dict, blank=True, null=True)
     cards_per_player = models.PositiveSmallIntegerField()
     is_complete     = models.BooleanField(default=False)
 

@@ -4,14 +4,21 @@ import type { GameState, Card, RoundScore } from "./types";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 
+export interface ChatMessage {
+  id: string;
+  username: string;
+  message: string;
+  timestamp: Date;
+}
+
 export function useGameSocket(gameCode: string, username: string) {
   const ws = useRef<WebSocket | null>(null);
   const [state, setState] = useState<GameState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [roundSummary, setRoundSummary] = useState<{ round: number; scores: RoundScore[] } | null>(null);
-
   const [trickWinner, setTrickWinner] = useState<{ winner: string; seat: number } | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
     if (!username) return;
@@ -45,6 +52,16 @@ export function useGameSocket(gameCode: string, username: string) {
           setRoundSummary({ round: msg.round, scores: msg.scores });
         } else if (msg.type === "trick_winner") {
           setTrickWinner({ winner: msg.winner, seat: msg.seat });
+        } else if (msg.type === "chat_message") {
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: Math.random().toString(36).substring(2, 9),
+              username: msg.username,
+              message: msg.message,
+              timestamp: new Date(),
+            },
+          ]);
         } else if (msg.type === "game_cancelled") {
           window.location.href = "/lobby";
         }
@@ -84,6 +101,25 @@ export function useGameSocket(gameCode: string, username: string) {
   const playCard     = useCallback((card: Card) => send({ action: "play_card", card }), [send]);
   const endGame      = useCallback(() => send({ action: "end_game" }), [send]);
   const clearSummary = useCallback(() => setRoundSummary(null), []);
+  const sendChat     = useCallback((message: string) => send({ action: "send_chat", message }), [send]);
+  const extendGame   = useCallback(() => send({ action: "extend_game" }), [send]);
+  const finishGame   = useCallback(() => send({ action: "finish_game" }), [send]);
 
-  return { state, error, connected, roundSummary, trickWinner, clearSummary, startGame, cancelGame, placeBid, playCard, endGame };
+  return {
+    state,
+    error,
+    connected,
+    roundSummary,
+    trickWinner,
+    chatMessages,
+    clearSummary,
+    startGame,
+    cancelGame,
+    placeBid,
+    playCard,
+    endGame,
+    sendChat,
+    extendGame,
+    finishGame,
+  };
 }

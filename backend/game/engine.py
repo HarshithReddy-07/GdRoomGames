@@ -12,22 +12,27 @@ def build_deck(num_decks: int = 1) -> list[dict]:
     return deck
 
 
-def deal_cards(num_players: int, cards_per_player: int, num_decks: int = 1) -> list[list[dict]]:
-    """Deal cards_per_player cards to each player. Extra cards are discarded (shuffled away)."""
+def deal_cards(num_players: int, cards_per_player: int, num_decks: int = 1) -> tuple[list[list[dict]], dict]:
+    """
+    Selects a random card from the deck to be the trump card, removes it from the deck,
+    and deals cards_per_player cards to each player.
+    Returns (hands, trump_card).
+    """
     deck = build_deck(num_decks)
+    
+    # Pick a random card as the trump card and remove it from the deck
+    trump_card = random.choice(deck)
+    deck.remove(trump_card)
+    
     hands = [[] for _ in range(num_players)]
     for i in range(cards_per_player * num_players):
         hands[i % num_players].append(deck[i])
-    return hands
-
-
-def pick_trump() -> str:
-    return random.choice(SUITS)
+    return hands, trump_card
 
 
 def max_rounds(num_players: int, num_decks: int = 1) -> int:
-    """Highest round number where every player can receive that many cards from one shuffled deck."""
-    return (52 * num_decks) // num_players
+    """Highest round number where every player can receive that many cards after 1 is set aside as trump."""
+    return (52 * num_decks - 1) // num_players
 
 
 def determine_winner(trick_cards: list[dict], lead_suit: str, trump_suit: str) -> int:

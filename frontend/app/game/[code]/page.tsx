@@ -25,10 +25,11 @@ export default function GamePage() {
 
   const {
     state, error, connected, roundSummary, trickWinner, clearSummary,
-    startGame, cancelGame, placeBid, playCard, endGame,
+    startGame, cancelGame, placeBid, playCard, endGame, chatMessages, sendChat,
+    extendGame, finishGame,
   } = useGameSocket(code, username ?? "");
 
-  // ── Loading states ────────────────────────────────────────────────────────
+  // ── Loading states ────────────────────────────────────────────────ân
   if (!ready || !username) {
     return <Spinner />;
   }
@@ -75,11 +76,15 @@ export default function GamePage() {
       gameError={error}
       roundSummary={roundSummary}
       trickWinner={trickWinner}
+      chatMessages={chatMessages}
+      sendChat={sendChat}
       onClearSummary={clearSummary}
       onStartGame={startGame}
       onBid={placeBid}
       onPlayCard={playCard}
       onEndGame={endGame}
+      onExtendGame={extendGame}
+      onFinishGame={finishGame}
     />
   );
 }

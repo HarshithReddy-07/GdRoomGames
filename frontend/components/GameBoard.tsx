@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Card from "./Card";
 import Scoreboard from "./Scoreboard";
@@ -8,6 +8,7 @@ import RoundSummary from "./RoundSummary";
 import VoiceChat from "./VoiceChat";
 import type { GameState, Card as CardType, RoundScore } from "@/lib/types";
 import { TEAM_COLORS } from "@/lib/types";
+import type { ChatMessage } from "@/lib/useGameSocket";
 
 interface Props {
   state: GameState;
@@ -16,11 +17,15 @@ interface Props {
   gameError: string | null;
   roundSummary: { round: number; scores: RoundScore[] } | null;
   trickWinner: { winner: string; seat: number } | null;
+  chatMessages: ChatMessage[];
+  sendChat: (message: string) => void;
   onClearSummary: () => void;
   onStartGame: () => void;
   onBid: (bid: number) => void;
   onPlayCard: (card: CardType) => void;
   onEndGame: () => void;
+  onExtendGame: () => void;
+  onFinishGame: () => void;
 }
 
 const SUIT_ORDER: Record<string, number> = { spades: 0, hearts: 1, diamonds: 2, clubs: 3 };
@@ -39,16 +44,48 @@ export default function GameBoard({
   gameError,
   roundSummary,
   trickWinner,
+  chatMessages,
+  sendChat,
   onClearSummary,
   onStartGame,
   onBid,
   onPlayCard,
   onEndGame,
+  onExtendGame,
+  onFinishGame,
 }: Props) {
   const [selectedCard,   setSelectedCard]   = useState<string | null>(null);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [showMenu,       setShowMenu]       = useState(false);
   const [showScoreboard, setShowScoreboard] = useState(false);
+
+  const [showChat, setShowChat] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [lastReadCount, setLastReadCount] = useState(0);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const toggleChat = () => {
+    setShowChat(!showChat);
+    if (!showChat) {
+      setLastReadCount(chatMessages.length);
+    }
+  };
+
+  const hasNewMessages = chatMessages.length > lastReadCount && !showChat;
+
+  useEffect(() => {
+    if (showChat) {
+      setLastReadCount(chatMessages.length);
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages.length, showChat]);
+
+  const handleChatSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    sendChat(chatInput.trim());
+    setChatInput("");
+  };
 
   const me       = state.players.find((p) => p.username === username);
   const myTurn   = !!me && state.players[state.current_player_index]?.username === username;
@@ -103,14 +140,20 @@ export default function GameBoard({
               <span className="text-gray-700">/{state.max_rounds}</span>
             </span>
           )}
-          {/* Trump — always visible, symbol + name */}
-          {state.trump_suit && (
+          {/* Trump — always visible, symbol + name + rank if present */}
+          {state.trump_card ? (
+            <span className={`flex items-center gap-1 font-semibold shrink-0 ${SUIT_COL[state.trump_card.suit]}`}>
+              <span className="text-gray-600 font-normal text-[10px]">trump</span>
+              <span className="text-sm font-extrabold bg-white/10 px-1 py-0.5 rounded leading-none">{state.trump_card.rank}</span>
+              <span className="text-2xl leading-none">{SUIT_SYMBOL[state.trump_card.suit]}</span>
+            </span>
+          ) : state.trump_suit ? (
             <span className={`flex items-center gap-1 font-semibold shrink-0 ${SUIT_COL[state.trump_suit]}`}>
               <span className="text-gray-600 font-normal text-[10px]">trump</span>
               <span className="text-2xl leading-none">{SUIT_SYMBOL[state.trump_suit]}</span>
               <span className="hidden sm:inline text-sm">{SUIT_NAME[state.trump_suit]}</span>
             </span>
-          )}
+          ) : null}
           {/* Current bidder (live) · who starts play */}
           {isActive && (() => {
             const currentBidder = state.status === "bidding"
@@ -135,6 +178,18 @@ export default function GameBoard({
 
         {/* Right: scoreboard btn + desktop extras + hamburger */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {/* Chat Toggle Button */}
+          <button
+            onClick={toggleChat}
+            title="Chat"
+            className="relative p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-yellow-400 transition-all border border-white/10 text-sm leading-none"
+          >
+            💬
+            {hasNewMessages && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border border-gray-900 animate-pulse" />
+            )}
+          </button>
+
           <button
             onClick={() => setShowScoreboard(true)}
             title="Scoreboard"
@@ -179,6 +234,15 @@ export default function GameBoard({
           >
             <div className="flex items-center gap-3 px-3 py-2 flex-wrap">
               <VoiceChat gameCode={gameCode} username={username} />
+              <button
+                onClick={() => { toggleChat(); setShowMenu(false); }}
+                className="relative px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-gray-300 text-xs flex items-center gap-1.5 font-semibold"
+              >
+                💬 Chat
+                {hasNewMessages && (
+                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                )}
+              </button>
               <span className="text-gray-500 text-xs flex-1">{username}</span>
               {isHost && state.status !== "finished" && (
                 <button
@@ -208,7 +272,48 @@ export default function GameBoard({
       </AnimatePresence>
 
       {/* ── Main content ─────────────────────────────────────────────────────── */}
-      {state.status === "finished" ? (
+      {state.status === "prompt" ? (
+        <div className="flex-1 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-gray-900 border border-yellow-500/30 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-center"
+          >
+            <p className="text-4xl mb-3">🔄</p>
+            <h2 className="text-yellow-400 font-bold text-lg mb-2">Round Limit Reached</h2>
+            {isHost ? (
+              <>
+                <p className="text-gray-300 text-sm mb-6">
+                  You have completed the scheduled rounds. Would you like to extend the game and play another round?
+                </p>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={onExtendGame}
+                    className="w-full bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-bold py-2.5 rounded-xl transition-all shadow-md shadow-yellow-400/10 cursor-pointer"
+                  >
+                    Yes, Play Another Round
+                  </button>
+                  <button
+                    onClick={onFinishGame}
+                    className="w-full bg-white/5 hover:bg-white/10 text-gray-300 font-semibold py-2.5 rounded-xl transition-all border border-white/10 cursor-pointer"
+                  >
+                    No, Show Game Results
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-300 text-sm mb-6">
+                  Waiting for the host to decide whether to extend the game or show the final scores...
+                </p>
+                <div className="flex items-center justify-center py-2">
+                  <div className="w-6 h-6 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              </>
+            )}
+          </motion.div>
+        </div>
+      ) : state.status === "finished" ? (
         /* Finished: full-center banner */
         <div className="flex-1 flex items-center justify-center p-4">
           <GameOverBanner
@@ -380,11 +485,15 @@ export default function GameBoard({
               <div className="flex justify-between items-center mb-4">
                 <span className="text-yellow-400 font-bold text-sm">
                   Scoreboard — Round {state.current_round}/{state.max_rounds}
-                  {state.trump_suit && (
+                  {state.trump_card ? (
+                    <span className={`ml-2 font-normal text-xs ${SUIT_COL[state.trump_card.suit]}`}>
+                      Trump: {state.trump_card.rank}{SUIT_SYMBOL[state.trump_card.suit]}
+                    </span>
+                  ) : state.trump_suit ? (
                     <span className={`ml-2 font-normal text-xs ${SUIT_COL[state.trump_suit]}`}>
                       Trump: {SUIT_SYMBOL[state.trump_suit]} {SUIT_NAME[state.trump_suit]}
                     </span>
-                  )}
+                  ) : null}
                 </span>
                 <button onClick={() => setShowScoreboard(false)} className="text-gray-500 hover:text-white text-lg leading-none">✕</button>
               </div>
@@ -441,6 +550,69 @@ export default function GameBoard({
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Game Chat drawer ─────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showChat && (
+          <motion.div
+            initial={{ x: 300, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 300, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 280, damping: 30 }}
+            className="fixed top-0 right-0 h-full w-80 bg-gray-950/95 border-l border-white/10 shadow-2xl z-40 flex flex-col p-4"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
+              <h3 className="text-yellow-400 font-bold text-sm flex items-center gap-1.5">
+                💬 Game Chat
+              </h3>
+              <button
+                onClick={() => setShowChat(false)}
+                className="text-gray-500 hover:text-white text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Message history */}
+            <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-1 text-xs scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              {chatMessages.length === 0 ? (
+                <p className="text-gray-600 text-center py-8">No messages yet. Say hello!</p>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isMe = msg.username === username;
+                  return (
+                    <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+                      <span className="text-[10px] text-gray-500 mb-0.5">{msg.username}</span>
+                      <div className={`rounded-xl px-3 py-1.5 max-w-[85%] break-words leading-relaxed ${isMe ? "bg-yellow-400 text-gray-900 font-medium shadow-md shadow-yellow-400/10" : "bg-white/10 text-white"}`}>
+                        {msg.message}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Chat input */}
+            <form onSubmit={handleChatSubmit} className="flex gap-2 shrink-0">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Type a message..."
+                maxLength={100}
+                className="flex-1 bg-black/40 border border-white/15 rounded-xl px-3 py-2 text-white text-xs placeholder-gray-600 focus:outline-none focus:border-yellow-400/50"
+              />
+              <button
+                type="submit"
+                className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-bold px-3 py-2 rounded-xl text-xs transition-all shadow-md shadow-yellow-400/10 shrink-0"
+              >
+                Send
+              </button>
+            </form>
           </motion.div>
         )}
       </AnimatePresence>
